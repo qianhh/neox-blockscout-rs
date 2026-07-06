@@ -27,11 +27,21 @@ on:
         required: false
         type: string
         default: 'proto=proto'
+      arm-runner-hostname:
+        description: 'Optional ARM runner hostname to use for remote build'
+        required: false
+        type: string
+        default: ''
+      arm-runner-key:
+        description: 'Optional ARM runner SSH key (or identifier)'
+        required: false
+        type: string
+        default: ''
     secrets:
       ARM_RUNNER_HOSTNAME:
-        required: true
+        required: false
       ARM_RUNNER_KEY:
-        required: true
+        required: false
     outputs:
       tag-value:
         description: 'A semver compatible version retrieved from the tag'
@@ -75,23 +85,43 @@ jobs:
             echo "tags=" >> $GITHUB_OUTPUT
           fi
 
+      - name: Login to GHCR for public runner
+        if: ${{ inputs.arm-runner-hostname == '' || inputs.arm-runner-key == '' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract metadata for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE_NAME }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup repo
+      - name: Setup QEMU for public runner
+        if: ${{ inputs.arm-runner-hostname == '' || inputs.arm-runner-key == '' }}
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
+
+      - name: Setup Buildx for public runner
+        if: ${{ inputs.arm-runner-hostname == '' || inputs.arm-runner-key == '' }}
+        uses: docker/setup-buildx-action@v3
+        id: setup_public
+
+      - name: Setup repo with ARM host
+        if: ${{ inputs.arm-runner-hostname != '' && inputs.arm-runner-key != '' }}
         uses: blockscout/actions/.github/actions/setup-multiarch-buildx@main
-        id: setup
+        id: setup_arm
         with:
           docker-image: ${{ env.IMAGE_NAME }}
           docker-username: ${{ github.actor }}
           docker-password: ${{ secrets.GITHUB_TOKEN }}
           docker-remote-multi-platform: true
-          docker-arm-host: ${{ secrets.ARM_RUNNER_HOSTNAME }}
-          docker-arm-host-key: ${{ secrets.ARM_RUNNER_KEY }}
+          docker-arm-host: ${{ inputs.arm-runner-hostname }}
+          docker-arm-host-key: ${{ inputs.arm-runner-key }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -104,6 +134,7 @@ jobs:
           platforms: |
             linux/amd64
             linux/arm64/v8
-          labels: ${{ steps.setup.outputs.docker-labels }}
+          labels: ${{ steps.meta.outputs.labels }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:build-cache
           cache-to: ${{ github.ref == 'refs/heads/main' && format('type=registry,ref={0}:build-cache,mode=max', env.IMAGE_NAME) || '' }}

@@ -1,7 +1,7 @@
 on:
   push:
     branches:
-      - 'main'
+      - 'neox'
     tags:
       - 'stats/v*'
     paths:
@@ -106,6 +106,8 @@ jobs:
     needs:
       - test
       - lint
+    permissions:
+      packages: write
     if: |
       always() &&
       (needs.test.result == 'success' || needs.test.result == 'cancelled') &&
@@ -113,13 +115,14 @@ jobs:
     uses: ./.github/workflows/_docker-build-push.yml
     with:
       service-name: stats
-    secrets:
-      ARM_RUNNER_HOSTNAME: ${{ secrets.ARM_RUNNER_HOSTNAME }}
-      ARM_RUNNER_KEY: ${{ secrets.ARM_RUNNER_KEY }}
+      organization: ${{ github.actor }}
 
   publish_types_package:
     name: Publish types package
     uses: './.github/workflows/npm-publisher.yml'
+    permissions:
+      contents: read
+      id-token: write
     needs: docker
     if: needs.docker.outputs.tag-value != ''
     secrets: inherit
